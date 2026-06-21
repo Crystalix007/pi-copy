@@ -121,10 +121,39 @@ export async function runCopyToClipboard(
 			"info",
 		);
 	} else {
-		ctx.ui.notify(
-			`pi-copy: clipboard write failed: ${result.error ?? "unknown error"}`,
-			"error",
-		);
+		const err = result.error ?? "unknown error";
+		// ENOENT-style failures ("clipboard tool '<cmd>' not found") get an
+		// actionable, platform-specific install tip. Anything else (non-zero
+		// exit, EACCES, ...) surfaces the raw underlying error.
+		if (err.includes("not found")) {
+			ctx.ui.notify(
+				`pi-copy: clipboard tool not found. ${installHint(process.platform)}`,
+				"error",
+			);
+		} else {
+			ctx.ui.notify(`pi-copy: clipboard write failed: ${err}`, "error");
+		}
+	}
+}
+
+/**
+ * Platform-specific install tip for the actionable "clipboard tool not
+ * found" notify. PURE: returns a short string describing how to get a
+ * clipboard tool for the given platform, or a generic fallback for anything
+ * `pickClipboard` does not cover (freebsd, openbsd, aix, sunos, ...).
+ */
+function installHint(platform: NodeJS.Platform): string {
+	switch (platform) {
+		case "darwin":
+			return "pbcopy should be built in";
+		case "win32":
+			return "clip.exe should be built in";
+		case "linux":
+			return "install wl-copy (Wayland) or xclip/xsel (X11)";
+		case "android":
+			return "pkg install termux-api";
+		default:
+			return "no clipboard tool available for this platform";
 	}
 }
 

@@ -118,3 +118,63 @@ export function readOptions(
 				: parsePrefillSource(prefillRaw),
 	};
 }
+
+/**
+ * Validate env values for pi-copy. PURE: reads only `env` and returns a list
+ * of human-readable warning strings (empty when everything is valid or
+ * unset). This is the impure-seam caller's signal channel — `readOptions`
+ * itself stays silent on invalid values (it just falls back to the default);
+ * `validateOptions` is what surfaces typos to the user once at load time.
+ *
+ * Warning rules (a SET var that is valid, or any UNSET var, produces nothing):
+ *   PICOPY_WINDOW_MS         set but not a positive integer
+ *       -> "PICOPY_WINDOW_MS='<raw>' is not a positive integer; using 400"
+ *   PICOPY_REQUIRE_EXIT_ZERO set but not in the truthy/falsy set
+ *       -> "PICOPY_REQUIRE_EXIT_ZERO='<raw>' is not recognized; defaulting to true"
+ *   PICOPY_PREFILL           'lastAssistant' (any case)
+ *       -> "PICOPY_PREFILL='<raw>' is reserved for a future release; ignored"
+ *                            anything other than 'none'/'lastAssistant'
+ *       -> "PICOPY_PREFILL='<raw>' is invalid; using 'none'"
+ *
+ * PICOPY_KEY and PICOPY_EDITOR are free-form strings (any non-empty value is
+ * accepted) and never produce a warning here.
+ */
+export function validateOptions(
+	env: Record<string, string | undefined>,
+): string[] {
+	const warnings: string[] = [];
+
+	const windowMsRaw = env.PICOPY_WINDOW_MS;
+	if (windowMsRaw !== undefined) {
+		const n = Number.parseInt(windowMsRaw.trim(), 10);
+		if (!Number.isFinite(n) || n <= 0) {
+			warnings.push(
+				`PICOPY_WINDOW_MS='${windowMsRaw}' is not a positive integer; using 400`,
+			);
+		}
+	}
+
+	const requireRaw = env.PICOPY_REQUIRE_EXIT_ZERO;
+	if (requireRaw !== undefined) {
+		const v = requireRaw.trim().toLowerCase();
+		if (!TRUTHY_REQUIRE.has(v) && !FALSY_REQUIRE.has(v)) {
+			warnings.push(
+				`PICOPY_REQUIRE_EXIT_ZERO='${requireRaw}' is not recognized; defaulting to true`,
+			);
+		}
+	}
+
+	const prefillRaw = env.PICOPY_PREFILL;
+	if (prefillRaw !== undefined) {
+		const v = prefillRaw.trim().toLowerCase();
+		if (v === "lastassistant") {
+			warnings.push(
+				`PICOPY_PREFILL='${prefillRaw}' is reserved for a future release; ignored`,
+			);
+		} else if (v !== "none") {
+			warnings.push(`PICOPY_PREFILL='${prefillRaw}' is invalid; using 'none'`);
+		}
+	}
+
+	return warnings;
+}

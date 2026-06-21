@@ -52,7 +52,9 @@ interface SpawnCall {
  *     `editorContent` to the tmp file (the last argv element) when
  *     `editorExit` is non-null, then emits `close` with `editorExit`;
  *   - for a clipboard invocation (cmd in CLIPBOARD_CMDS) captures the stdin
- *     payload and emits `close` with `clipboardExit`.
+ *     payload and emits `close` with `clipboardExit`, OR — when
+ *     `clipboardError` is set — emits `error` with that ErrnoException-shaped
+ *     object (used to exercise the ENOENT "clipboard tool not found" branch).
  *
  * Returns the recorded calls so tests can assert argv, count, and the
  * clipboard payload. All callbacks fire on the next microtask via
@@ -62,6 +64,7 @@ function makeFakeSpawn(opts: {
 	editorExit: number | null;
 	editorContent?: string;
 	clipboardExit?: number;
+	clipboardError?: { code?: string; message: string };
 }): { spawn: LaunchDeps["spawn"]; calls: SpawnCall[] } {
 	const calls: SpawnCall[] = [];
 
@@ -109,9 +112,17 @@ function makeFakeSpawn(opts: {
 
 		void Promise.resolve().then(() => {
 			if (CLIPBOARD_CMDS.has(cmd)) {
-				// Clipboard write: succeed (or fail) per clipboardExit.
-				const code = opts.clipboardExit ?? 0;
-				for (const cb of closeHandlers) cb(code);
+				// Clipboard write: succeed, fail per clipboardExit, or surface a
+				// spawn-time error per clipboardError (e.g. ENOENT).
+				if (opts.clipboardError) {
+					const e = Object.assign(new Error(opts.clipboardError.message), {
+						code: opts.clipboardError.code,
+					});
+					for (const cb of errorHandlers) cb(e);
+				} else {
+					const code = opts.clipboardExit ?? 0;
+					for (const cb of closeHandlers) cb(code);
+				}
 			} else {
 				// Editor launch.
 				if (opts.editorExit !== null && opts.editorContent !== undefined) {
@@ -418,5 +429,45 @@ describe("runCopyToClipboard (CP6)", () => {
 		expect(notify).toHaveBeenCalledTimes(1);
 		expect(notify.mock.calls[0]?.[1]).toBe("error");
 		expect(notify.mock.calls[0]?.[0]).toMatch(/clipboard write failed/);
+		// Non-ENOENT failures must NOT take the install-hint branch.
+		expect(notify.mock.calls[0]?.[0]).not.toMatch(/clipboard tool not found/);
+	});
+
+	it("clipboard ENOENT (tool missing) -> actionable 'tool not found' notify with the platform install hint", async () => {
+		const tui = makeFakeTui();
+		const { ctx, notify } = makeFakeCtx(tui);
+		const fake = makeFakeSpawn({
+			editorExit: 0,
+			editorContent: "hello\n",
+			clipboardError: { code: "ENOENT", message: "spawn ENOENT" },
+		});
+
+		await runCopyToClipboard(ctx, {
+			spawn: fake.spawn,
+			fs: { writeFile, readFile, unlink },
+			tmpdir: () => tmpdir(),
+		});
+
+		expect(notify).toHaveBeenCalledTimes(1);
+		expect(notify.mock.calls[0]?.[1]).toBe("error");
+		const msg = String(notify.mock.calls[0]?.[0]);
+		expect(msg).toMatch(/clipboard tool not found/);
+		// Platform-specific install tip is appended. The expected substring
+		// depends on the host running the test.
+		const expectedHint: RegExp | string =
+			process.platform === "darwin"
+				? "pbcopy"
+				: process.platform === "linux"
+					? /wl-copy|xclip/
+					: process.platform === "win32"
+						? "clip.exe"
+						: process.platform === "android"
+							? "termux-api"
+							: /no clipboard tool/;
+		if (expectedHint instanceof RegExp) {
+			expect(msg).toMatch(expectedHint);
+		} else {
+			expect(msg).toContain(expectedHint);
+		}
 	});
 });

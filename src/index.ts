@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { KeyId } from "@earendil-works/pi-tui";
 import { createChord } from "./chord.js";
 import { runCopyToClipboard } from "./handler.js";
-import { readOptions } from "./options.js";
+import { readOptions, validateOptions } from "./options.js";
 
 /**
  * In-flight status-clear timer. Module-scoped so a re-arm while armed, or a
@@ -12,9 +12,14 @@ import { readOptions } from "./options.js";
 let statusTimeout: ReturnType<typeof setTimeout> | undefined;
 
 export default function piCopy(pi: ExtensionAPI): void {
-	const options = readOptions(
-		process.env as Record<string, string | undefined>,
-	);
+	const env = process.env as Record<string, string | undefined>;
+	const options = readOptions(env);
+	// Surface invalid env values ONCE at load. readOptions silently falls
+	// back to defaults; validateOptions is the user-facing signal channel so
+	// typos like PICOPY_WINDOW_MS=garbage do not fail invisibly.
+	for (const msg of validateOptions(env)) {
+		console.warn(`[pi-copy] ${msg}`);
+	}
 	const chord = createChord({ windowMs: options.windowMs, now: Date.now });
 
 	pi.registerShortcut(options.chordKey as KeyId, {
