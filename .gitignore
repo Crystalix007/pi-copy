@@ -1,0 +1,12 @@
+# Planning drafts are local-only
+PLAN.md
+
+# Dependencies
+node_modules/
+
+# TypeScript / build output
+dist/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
