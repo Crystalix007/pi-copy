@@ -10,3 +10,6 @@ dist/
 
 # Editor / OS
 .DS_Store
+
+# pi-subagent run artifacts
+.pi-subagents/

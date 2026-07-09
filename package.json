@@ -6,6 +6,9 @@
   "engines": {
     "node": ">=20"
   },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
